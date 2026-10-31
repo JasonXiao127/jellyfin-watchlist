@@ -1,0 +1,23 @@
+# Build output
+bin/
+obj/
+artifacts/
+dist/
+*.user
+*.suo
+*.DotSettings.user
+
+# Browser test session artifacts (may contain session tokens)
+.playwright-mcp/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local test data
+.jellyfin-test/

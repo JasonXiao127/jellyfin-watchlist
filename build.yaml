@@ -1,0 +1,32 @@
+---
+name: "Watchlist"
+guid: "8b2cb734-efac-4399-8a1e-fe20e368a24a"
+version: "0.2.3.0"
+targetAbi: "12.2.0.0"
+framework: "net10.0"
+overview: "Use Jellyfin Favorites as a watchlist and remove completed movies and series."
+description: >
+  Watchlist treats each user's Jellyfin Favorites as their watchlist. When a
+  favorited movie is marked played, or a favorited series reaches the configured
+  completion rule, the plugin removes it from that user's Favorites. The plugin
+  works with the native star button and Favorites page on every Jellyfin client.
+category: "General"
+owner: "jason"
+artifacts:
+  - "Jellyfin.Plugin.Watchlist.dll"
+changelog: >
+  0.2.3: Fixed series tracking dropped after a library scan adds new episodes
+  (stale cached IsFavorite verified against the fresh favorites listing) and
+  refresh baselines automatically when library items are added, updated, or
+  removed. Hardened the Playwright getItem helper against the same stale
+  single-item endpoint.
+  0.2.2: Fixed the reconciliation setting being ignored by the cleanup task,
+  rating/favorite events re-arming removal or shrinking baselines, series rule
+  changes wiping movie tracking, announced future seasons falling back to older
+  ones, and favorite-then-play races for movies. Batched event handling with a
+  single state save and per-series episode collapsing.
+  0.2.1: Hardened baselines against library churn (content fingerprint, no
+  shrink-as-completion), latest-season unaired handling, dry-run and toggle
+  safety, stale config/event guards, state preservation, and manual scan bypass.
+  0.2.0: Consolidated Favorites-based watchlist. No playlist support.
+  0.1.0: Initial release.

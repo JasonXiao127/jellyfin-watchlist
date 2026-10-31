@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Watchlist</title>
+</head>
+<body>
+    <div id="WatchlistConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Watchlist</h2>
+                    <p class="fieldDescription">
+                        This plugin treats each user's Jellyfin Favorites as their watchlist.
+                        Star a movie or series anywhere in Jellyfin, and the plugin removes it
+                        from Favorites when the user completes it. There is no separate list or
+                        custom page: the native Favorites page is the watchlist.
+                    </p>
+                    <div style="padding:1em;margin:1em 0;border-radius:6px;background:rgba(255,193,7,0.12);">
+                        <strong>How to use (works on web, mobile, and TV):</strong>
+                        <ol style="margin:0.5em 0 0;padding-left:1.5em;">
+                            <li>Star a movie or series with the &#9733; favorite button.</li>
+                            <li>Find it later on the Favorites page.</li>
+                            <li>Watch it normally. The plugin removes it from Favorites when complete.</li>
+                        </ol>
+                    </div>
+                    <div style="padding:1em;margin:1em 0 1.5em;border-radius:6px;background:rgba(255,193,7,0.12);">
+                        <strong>Favorites are shared with normal Jellyfin use.</strong>
+                        A favorite that was already complete when it was starred is kept, and
+                        re-starring a completed item keeps it again. Use the exempt tag or turn
+                        off automatic removal (movies and/or series) if you use Favorites for things you want to keep.
+                    </div>
+                </div>
+
+                <form id="WatchlistConfigForm">
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="CompletionMode">When should a series be removed?</label>
+                        <select is="emby-select" id="CompletionMode" class="emby-select-withcolor emby-select">
+                            <option value="EndedAndFullyWatched">Ended + fully watched (recommended)</option>
+                            <option value="CaughtUp">Caught up (all available episodes watched)</option>
+                            <option value="LatestSeasonWatched">Latest season watched</option>
+                        </select>
+                        <div class="fieldDescription">
+                            <strong>Ended + fully watched</strong> waits until the series is marked
+                            Ended in metadata and every eligible episode is played. Catching up on
+                            an ongoing show does not remove it.<br>
+                            <strong>Caught up</strong> removes the series as soon as every currently
+                            available episode is played, even if more episodes are coming.<br>
+                            <strong>Latest season watched</strong> removes the series when every
+                            episode of its newest season is played; earlier seasons are ignored.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="AutoRemoveMovies" type="checkbox" is="emby-checkbox" />
+                            <span>Remove movies when played</span>
+                        </label>
+                        <div class="fieldDescription">
+                            A favorite movie is removed when it transitions to played. Movies
+                            that were already played when favorited are kept.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="AutoRemoveSeries" type="checkbox" is="emby-checkbox" />
+                            <span>Remove series when complete</span>
+                        </label>
+                        <div class="fieldDescription">
+                            A favorite series is removed according to the completion mode above.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="ExcludeSpecials" type="checkbox" is="emby-checkbox" />
+                            <span>Ignore season zero specials</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When enabled, specials do not need to be watched before a series
+                            counts as complete. Latest-season mode always ignores season zero.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="TreatUnknownSeriesStatusAsEnded" type="checkbox" is="emby-checkbox" />
+                            <span>Treat a missing series status as ended</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Only affects the Ended + fully watched mode. Leave this off if a
+                            missing status should keep the series on the list.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="ExemptTag">Exempt tag</label>
+                        <input id="ExemptTag" type="text" is="emby-input" />
+                        <div class="fieldDescription">
+                            Movies and series with this tag are never auto-removed. Leave empty
+                            to disable the exempt tag. Default: <code>keep-favorite</code>.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableReconciliation" type="checkbox" is="emby-checkbox" />
+                            <span>Run startup and daily reconciliation</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Real-time events handle playback completion. Reconciliation catches
+                            missed events and metadata changes, such as a series becoming Ended
+                            after it was watched. Turning this off also disables the Watchlist
+                            cleanup task below, including manual runs. You can run a scan on
+                            demand from Dashboard &rarr; Scheduled Tasks &rarr; Watchlist cleanup
+                            while it is on.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="DryRun" type="checkbox" is="emby-checkbox" />
+                            <span>Test mode: log removals without changing favorites</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Useful for checking the configuration. The server log shows what
+                            would have been removed.
+                        </div>
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            (function () {
+                var pluginId = '8b2cb734-efac-4399-8a1e-fe20e368a24a';
+                var page = document.querySelector('#WatchlistConfigPage');
+                var form = document.querySelector('#WatchlistConfigForm');
+
+                function getValue(id) {
+                    return document.querySelector('#' + id).value;
+                }
+
+                function getChecked(id) {
+                    return document.querySelector('#' + id).checked;
+                }
+
+                page.addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        document.querySelector('#CompletionMode').value =
+                            config.CompletionMode || 'EndedAndFullyWatched';
+                        document.querySelector('#AutoRemoveMovies').checked =
+                            config.AutoRemoveMovies !== false;
+                        document.querySelector('#AutoRemoveSeries').checked =
+                            config.AutoRemoveSeries !== false;
+                        document.querySelector('#ExcludeSpecials').checked =
+                            config.ExcludeSpecials !== false;
+                        document.querySelector('#TreatUnknownSeriesStatusAsEnded').checked =
+                            config.TreatUnknownSeriesStatusAsEnded === true;
+                        document.querySelector('#ExemptTag').value =
+                            config.ExemptTag == null ? 'keep-favorite' : config.ExemptTag;
+                        document.querySelector('#EnableReconciliation').checked =
+                            config.EnableReconciliation !== false;
+                        document.querySelector('#DryRun').checked =
+                            config.DryRun === true;
+                        Dashboard.hideLoadingMsg();
+                    }).catch(function () {
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+                form.addEventListener('submit', function (e) {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.CompletionMode = getValue('CompletionMode');
+                        config.AutoRemoveMovies = getChecked('AutoRemoveMovies');
+                        config.AutoRemoveSeries = getChecked('AutoRemoveSeries');
+                        config.ExcludeSpecials = getChecked('ExcludeSpecials');
+                        config.TreatUnknownSeriesStatusAsEnded = getChecked('TreatUnknownSeriesStatusAsEnded');
+                        config.ExemptTag = getValue('ExemptTag').trim();
+                        config.EnableReconciliation = getChecked('EnableReconciliation');
+                        config.DryRun = getChecked('DryRun');
+
+                        return ApiClient.updatePluginConfiguration(pluginId, config);
+                    }).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    }).catch(function () {
+                        Dashboard.hideLoadingMsg();
+                    });
+                    e.preventDefault();
+                    return false;
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>

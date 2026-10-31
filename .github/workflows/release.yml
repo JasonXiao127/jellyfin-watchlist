@@ -1,0 +1,73 @@
+name: Release plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
+      - name: Read version from build.yaml
+        run: |
+          VERSION=$(python3 -c "import yaml; print(yaml.safe_load(open('build.yaml'))['version'])")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Verify tag matches build.yaml
+        run: |
+          test "v$VERSION" = "${{ github.ref_name }}" || {
+            echo "tag ${{ github.ref_name }} does not match build.yaml version v$VERSION";
+            exit 1;
+          }
+
+      - name: Test
+        run: dotnet test Jellyfin.Plugin.Watchlist.sln -c Release --nologo
+
+      - name: Publish
+        run: dotnet publish Jellyfin.Plugin.Watchlist/Jellyfin.Plugin.Watchlist.csproj -c Release -o dist
+
+      - name: Build release zip
+        run: |
+          python3 scripts/make_meta.py build.yaml dist/meta.json dist
+          ZIP="Watchlist_${VERSION}.zip"
+          rm -f "$ZIP"
+          (cd dist && zip -r "../$ZIP" Jellyfin.Plugin.Watchlist.dll meta.json)
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Extract release notes
+        run: python3 -c "import yaml; print(yaml.safe_load(open('build.yaml')).get('changelog',''))" > notes.md
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP }}
+          body_path: notes.md
+
+      - name: Update repository manifest
+        run: |
+          git fetch origin main
+          git checkout main
+          python3 scripts/update-manifest.py manifest.json "$ZIP" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$ZIP"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git commit -m "manifest: add v${VERSION}" || echo "manifest unchanged"
+          git push origin main
