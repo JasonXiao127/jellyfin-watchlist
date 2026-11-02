@@ -10,6 +10,8 @@ namespace Jellyfin.Plugin.Watchlist.Models;
 /// <param name="TreatUnknownSeriesStatusAsEnded">Whether a missing series status counts as ended.</param>
 /// <param name="AutoRemoveMovies">Whether played favorites are removed.</param>
 /// <param name="AutoRemoveSeries">Whether completed series favorites are removed.</param>
+/// <param name="AutoRemoveSeasons">Whether fully watched season favorites are removed.</param>
+/// <param name="EnableRewatch">Whether re-adding a removed item clears its played state.</param>
 /// <param name="ExemptTag">An optional tag that protects an item from removal.</param>
 /// <param name="DryRun">Whether removal is only logged.</param>
 /// <param name="EnableReconciliation">Whether startup and scheduled scans run.</param>
@@ -19,6 +21,8 @@ public sealed record WatchlistOptions(
     bool TreatUnknownSeriesStatusAsEnded,
     bool AutoRemoveMovies,
     bool AutoRemoveSeries,
+    bool AutoRemoveSeasons,
+    bool EnableRewatch,
     string ExemptTag,
     bool DryRun,
     bool EnableReconciliation)
@@ -43,6 +47,8 @@ public sealed record WatchlistOptions(
             config.TreatUnknownSeriesStatusAsEnded,
             config.AutoRemoveMovies,
             config.AutoRemoveSeries,
+            config.AutoRemoveSeasons,
+            config.EnableRewatch,
             (config.ExemptTag ?? string.Empty).Trim(),
             config.DryRun,
             config.EnableReconciliation);

@@ -13,6 +13,9 @@ public enum WatchlistItemKind
     /// <summary>A series.</summary>
     Series,
 
+    /// <summary>A season.</summary>
+    Season,
+
     /// <summary>An episode.</summary>
     Episode,
 
@@ -27,6 +30,7 @@ public enum WatchlistItemKind
 /// <param name="ItemId">The item that changed.</param>
 /// <param name="Kind">The kind of item.</param>
 /// <param name="SeriesId">The parent series for an episode, when known.</param>
+/// <param name="SeasonId">The parent season for an episode, when known.</param>
 /// <param name="IsFavorite">Whether the item is now a favorite.</param>
 /// <param name="Played">Whether the item is now played.</param>
 /// <param name="SaveReason">Why the user data was saved.</param>
@@ -35,6 +39,7 @@ public sealed record UserDataChange(
     Guid ItemId,
     WatchlistItemKind Kind,
     Guid SeriesId,
+    Guid SeasonId,
     bool IsFavorite,
     bool Played,
     UserDataSaveReason SaveReason);

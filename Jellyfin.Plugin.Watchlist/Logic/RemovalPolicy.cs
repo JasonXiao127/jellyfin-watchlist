@@ -14,6 +14,19 @@ public sealed record SeriesObservation(
     string ContentFingerprint = "");
 
 /// <summary>
+/// The last observed completion state of a season.
+/// </summary>
+/// <param name="Complete">Whether the season was complete.</param>
+/// <param name="EpisodeCount">The number of eligible episodes considered.</param>
+/// <param name="SeasonNumber">The season number.</param>
+/// <param name="ContentFingerprint">A stable fingerprint of the considered episode ids, or empty when unknown.</param>
+public sealed record SeasonObservation(
+    bool Complete,
+    int EpisodeCount,
+    int SeasonNumber,
+    string ContentFingerprint = "");
+
+/// <summary>
 /// Decides whether a favorite should be removed based on the previous observation
 /// and the current state. Removing only on a transition prevents items that were
 /// already complete when favorited from disappearing.
@@ -88,6 +101,88 @@ public static class RemovalPolicy
         // Same season and count: only replaced content (different episode ids)
         // counts as new. An empty fingerprint means unknown (old state or
         // tests), which never triggers removal by itself.
+        return FingerprintDiffers(observed.ContentFingerprint, current.ContentFingerprint);
+    }
+
+    /// <summary>
+    /// Decides whether a favorite season should be removed.
+    /// </summary>
+    /// <param name="observed">The previous observation, or null when unknown.</param>
+    /// <param name="current">The current completion result.</param>
+    /// <returns><c>true</c> when the season completed or gained new content that is now complete.</returns>
+    public static bool ShouldRemoveSeason(SeasonObservation? observed, CompletionResult current)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+
+        if (!current.IsComplete || observed is null)
+        {
+            return false;
+        }
+
+        if (!observed.Complete)
+        {
+            // Shrinking content is a library change, not viewing.
+            if (current.EpisodeCount < observed.EpisodeCount)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        if (current.EpisodeCount > observed.EpisodeCount)
+        {
+            return true;
+        }
+
+        if (current.EpisodeCount < observed.EpisodeCount)
+        {
+            return false;
+        }
+
+        return FingerprintDiffers(observed.ContentFingerprint, current.ContentFingerprint);
+    }
+
+    /// <summary>
+    /// Decides whether the stored season observation should be replaced when no removal happens.
+    /// </summary>
+    /// <param name="observed">The previous observation, or null when unknown.</param>
+    /// <param name="current">The current completion result.</param>
+    /// <returns><c>true</c> when the current result should become the new baseline.</returns>
+    public static bool ShouldReplaceSeasonObservation(SeasonObservation? observed, CompletionResult current)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+
+        if (observed is null)
+        {
+            return true;
+        }
+
+        if (!observed.Complete)
+        {
+            return true;
+        }
+
+        if (current.IsComplete)
+        {
+            if (current.EpisodeCount < observed.EpisodeCount)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        if (current.EpisodeCount > observed.EpisodeCount)
+        {
+            return true;
+        }
+
+        if (current.EpisodeCount < observed.EpisodeCount)
+        {
+            return false;
+        }
+
         return FingerprintDiffers(observed.ContentFingerprint, current.ContentFingerprint);
     }
 

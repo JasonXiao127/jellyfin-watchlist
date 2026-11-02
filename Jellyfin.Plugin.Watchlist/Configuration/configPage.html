@@ -12,23 +12,25 @@
                     <h2 class="sectionTitle">Watchlist</h2>
                     <p class="fieldDescription">
                         This plugin treats each user's Jellyfin Favorites as their watchlist.
-                        Star a movie or series anywhere in Jellyfin, and the plugin removes it
+                        Star a movie, series, or season anywhere in Jellyfin, and the plugin removes it
                         from Favorites when the user completes it. There is no separate list or
                         custom page: the native Favorites page is the watchlist.
                     </p>
                     <div style="padding:1em;margin:1em 0;border-radius:6px;background:rgba(255,193,7,0.12);">
                         <strong>How to use (works on web, mobile, and TV):</strong>
                         <ol style="margin:0.5em 0 0;padding-left:1.5em;">
-                            <li>Star a movie or series with the &#9733; favorite button.</li>
+                            <li>Star a movie, series, or season with the &#9733; favorite button.</li>
                             <li>Find it later on the Favorites page.</li>
                             <li>Watch it normally. The plugin removes it from Favorites when complete.</li>
+                            <li>Star it again to rewatch: if it is still fully watched, its played state is cleared.</li>
                         </ol>
                     </div>
                     <div style="padding:1em;margin:1em 0 1.5em;border-radius:6px;background:rgba(255,193,7,0.12);">
                         <strong>Favorites are shared with normal Jellyfin use.</strong>
                         A favorite that was already complete when it was starred is kept, and
-                        re-starring a completed item keeps it again. Use the exempt tag or turn
-                        off automatic removal (movies and/or series) if you use Favorites for things you want to keep.
+                        re-starring a completed item keeps it again unless the plugin removed it
+                        (rewatch). Use the exempt tag or turn
+                        off automatic removal (movies, series, and/or seasons) if you use Favorites for things you want to keep.
                     </div>
                 </div>
 
@@ -69,6 +71,33 @@
                         </label>
                         <div class="fieldDescription">
                             A favorite series is removed according to the completion mode above.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="AutoRemoveSeasons" type="checkbox" is="emby-checkbox" />
+                            <span>Remove seasons when fully watched</span>
+                        </label>
+                        <div class="fieldDescription">
+                            A favorited season is removed when every eligible episode in that
+                            season is played. A directly favorited season zero is evaluated
+                            literally even when specials are ignored for series.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableRewatch" type="checkbox" is="emby-checkbox" />
+                            <span>Start a rewatch when a removed item is re-added</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When an item the plugin removed is added back to Favorites and it
+                            is still fully watched, clear its played state so you do not have
+                            to unmark everything manually. Only the user who re-adds the item
+                            is reset. A re-added series is only reset when every eligible
+                            episode across all seasons is played; otherwise favorite a
+                            specific season. This clears played badges and resume positions.
                         </div>
                     </div>
 
@@ -161,6 +190,10 @@
                             config.AutoRemoveMovies !== false;
                         document.querySelector('#AutoRemoveSeries').checked =
                             config.AutoRemoveSeries !== false;
+                        document.querySelector('#AutoRemoveSeasons').checked =
+                            config.AutoRemoveSeasons !== false;
+                        document.querySelector('#EnableRewatch').checked =
+                            config.EnableRewatch !== false;
                         document.querySelector('#ExcludeSpecials').checked =
                             config.ExcludeSpecials !== false;
                         document.querySelector('#TreatUnknownSeriesStatusAsEnded').checked =
@@ -183,6 +216,8 @@
                         config.CompletionMode = getValue('CompletionMode');
                         config.AutoRemoveMovies = getChecked('AutoRemoveMovies');
                         config.AutoRemoveSeries = getChecked('AutoRemoveSeries');
+                        config.AutoRemoveSeasons = getChecked('AutoRemoveSeasons');
+                        config.EnableRewatch = getChecked('EnableRewatch');
                         config.ExcludeSpecials = getChecked('ExcludeSpecials');
                         config.TreatUnknownSeriesStatusAsEnded = getChecked('TreatUnknownSeriesStatusAsEnded');
                         config.ExemptTag = getValue('ExemptTag').trim();

@@ -31,7 +31,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override string Description =>
-        "Uses native Jellyfin Favorites as the watchlist and removes completed movies and series. Works on every client with no custom pages.";
+        "Uses native Jellyfin Favorites as the watchlist and removes completed movies, series, and seasons. Re-adding a removed item starts a rewatch.";
 
     /// <summary>
     /// Gets the current plugin instance.

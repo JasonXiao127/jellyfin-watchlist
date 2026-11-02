@@ -112,6 +112,7 @@ public sealed class UserDataChangeBatchSelectorTests
             itemId ?? ItemId,
             WatchlistItemKind.Movie,
             Guid.Empty,
+            Guid.Empty,
             isFavorite,
             played,
             reason);

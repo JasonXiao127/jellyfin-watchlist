@@ -24,6 +24,16 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoRemoveSeries { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether a favorite season is removed when it is fully watched.
+    /// </summary>
+    public bool AutoRemoveSeasons { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether re-adding a removed item starts a rewatch by clearing its played state.
+    /// </summary>
+    public bool EnableRewatch { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether season zero episodes are ignored.
     /// </summary>
     public bool ExcludeSpecials { get; set; } = true;

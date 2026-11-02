@@ -294,6 +294,8 @@ public sealed class CompletionEvaluatorTests
             TreatUnknownSeriesStatusAsEnded: false,
             AutoRemoveMovies: true,
             AutoRemoveSeries: true,
+            AutoRemoveSeasons: true,
+            EnableRewatch: true,
             ExemptTag: "keep-favorite",
             DryRun: false,
             EnableReconciliation: true);

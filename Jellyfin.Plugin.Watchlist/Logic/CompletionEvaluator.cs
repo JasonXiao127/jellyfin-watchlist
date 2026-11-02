@@ -140,6 +140,48 @@ public static class CompletionEvaluator
             ComputeFingerprint(eligible.Select(episode => episode.Episode)));
     }
 
+    /// <summary>
+    /// Evaluates a single season. A directly favorited season zero is evaluated
+    /// literally even when specials are ignored for series.
+    /// </summary>
+    /// <param name="seasonEpisodes">The episodes in the season.</param>
+    /// <param name="seasonNumber">The season number.</param>
+    /// <param name="options">The completion options.</param>
+    /// <param name="nowUtc">The current UTC time.</param>
+    /// <returns>The completion result.</returns>
+    public static CompletionResult EvaluateSeason(
+        IReadOnlyList<EpisodeSnapshot> seasonEpisodes,
+        int seasonNumber,
+        WatchlistOptions options,
+        DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(seasonEpisodes);
+        ArgumentNullException.ThrowIfNull(options);
+
+        var eligible = seasonEpisodes
+            .Where(episode => !episode.IsMissing)
+            .Where(episode => !episode.PremiereDate.HasValue || episode.PremiereDate.Value <= nowUtc)
+            .ToList();
+
+        // Only a directly favorited season zero bypasses the specials exclusion.
+        // For any other season the filter is a no-op but kept for safety.
+        if (options.ExcludeSpecials && seasonNumber != 0)
+        {
+            eligible = eligible.Where(episode => NormalizeSeason(episode.SeasonNumber) != 0).ToList();
+        }
+
+        if (eligible.Count == 0)
+        {
+            return new CompletionResult(false, 0, seasonNumber, string.Empty);
+        }
+
+        return new CompletionResult(
+            eligible.All(episode => episode.Played),
+            eligible.Count,
+            seasonNumber,
+            ComputeFingerprint(eligible));
+    }
+
     private static int NormalizeSeason(int? seasonNumber)
     {
         return seasonNumber ?? 1;

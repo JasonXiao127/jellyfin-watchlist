@@ -250,6 +250,7 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
         {
             Movie => WatchlistItemKind.Movie,
             Series => WatchlistItemKind.Series,
+            Season => WatchlistItemKind.Season,
             Episode => WatchlistItemKind.Episode,
             _ => WatchlistItemKind.Other
         };
@@ -259,12 +260,43 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
             return;
         }
 
-        var seriesId = eventArgs.Item is Episode episode ? episode.SeriesId : Guid.Empty;
+        var seriesId = Guid.Empty;
+        var seasonId = Guid.Empty;
+        if (eventArgs.Item is Episode episode)
+        {
+            seriesId = episode.SeriesId;
+            if (seriesId == Guid.Empty)
+            {
+                try
+                {
+                    seriesId = episode.FindSeriesId();
+                }
+                catch
+                {
+                    seriesId = Guid.Empty;
+                }
+            }
+
+            seasonId = episode.SeasonId;
+            if (seasonId == Guid.Empty)
+            {
+                try
+                {
+                    seasonId = episode.FindSeasonId();
+                }
+                catch
+                {
+                    seasonId = Guid.Empty;
+                }
+            }
+        }
+
         var change = new UserDataChange(
             eventArgs.UserId,
             eventArgs.Item.Id,
             kind,
             seriesId,
+            seasonId,
             eventArgs.UserData.IsFavorite,
             eventArgs.UserData.Played,
             eventArgs.SaveReason);
@@ -289,7 +321,7 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
         // series, and removed items change fingerprints. Queue a delayed
         // reconciliation so baselines catch up even if no user-data event
         // follows. The worker coalesces bursts into a single scan.
-        if (eventArgs.Item is Episode or Series or Movie)
+        if (eventArgs.Item is Episode or Series or Season or Movie)
         {
             Volatile.Write(ref _lastLibraryChangeTicks, DateTime.UtcNow.Ticks);
             _channel.Writer.TryWrite(WorkItem.LibraryChanged);

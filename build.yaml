@@ -1,20 +1,28 @@
 ---
 name: "Watchlist"
 guid: "8b2cb734-efac-4399-8a1e-fe20e368a24a"
-version: "0.2.3.0"
+version: "0.3.0.0"
 targetAbi: "12.2.0.0"
 framework: "net10.0"
-overview: "Use Jellyfin Favorites as a watchlist and remove completed movies and series."
+overview: "Use Jellyfin Favorites as a watchlist and remove completed movies, series, and seasons."
 description: >
   Watchlist treats each user's Jellyfin Favorites as their watchlist. When a
-  favorited movie is marked played, or a favorited series reaches the configured
-  completion rule, the plugin removes it from that user's Favorites. The plugin
+  favorited movie is marked played, a favorited series reaches the configured
+  completion rule, or a favorited season is fully watched, the plugin removes it
+  from that user's Favorites. Re-adding a removed item that is still fully watched
+  starts a rewatch by clearing its played state. The plugin
   works with the native star button and Favorites page on every Jellyfin client.
 category: "General"
 owner: "jason"
 artifacts:
   - "Jellyfin.Plugin.Watchlist.dll"
 changelog: >
+  0.3.0: Seasons are first-class watchlist entries with removal when fully watched.
+  Re-adding an auto-removed movie, series, or season that is still fully watched
+  starts a rewatch by clearing its played state (toggleable). New options: Remove
+  seasons when fully watched and Start a rewatch when a removed item is re-added.
+  Fixed test mode missing fresh favorites (first sightings are now baselined in dry-run).
+  State schema v2 with season observations and removal tombstones (v1 migrates).
   0.2.3: Fixed series tracking dropped after a library scan adds new episodes
   (stale cached IsFavorite verified against the fresh favorites listing) and
   refresh baselines automatically when library items are added, updated, or

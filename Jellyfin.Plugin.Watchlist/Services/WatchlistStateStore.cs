@@ -13,7 +13,8 @@ namespace Jellyfin.Plugin.Watchlist.Services;
 /// </summary>
 public sealed class WatchlistStateStore
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
+    private const int MinimumSupportedSchemaVersion = 1;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -46,8 +47,9 @@ public sealed class WatchlistStateStore
 
     /// <summary>
     /// Clears series observations when the options that affect series completion
-    /// decisions change. Movie observations do not depend on those rules and are
-    /// preserved so a series-only setting change cannot lose a movie transition.
+    /// decisions change. Movie and season observations do not depend on those rules
+    /// and are preserved. Removal tombstones are always preserved; reset checks
+    /// re-validate live state and configuration.
     /// </summary>
     /// <param name="optionsSignature">The current options signature.</param>
     public void EnsureOptions(string optionsSignature)
@@ -76,7 +78,7 @@ public sealed class WatchlistStateStore
             }
 
             foreach (var key in state.Users
-                .Where(entry => entry.Value.Movies.Count == 0 && entry.Value.Series.Count == 0)
+                .Where(entry => entry.Value.Movies.Count == 0 && entry.Value.Series.Count == 0 && entry.Value.Seasons.Count == 0 && entry.Value.Removed.Count == 0)
                 .Select(entry => entry.Key)
                 .ToList())
             {
@@ -133,6 +135,30 @@ public sealed class WatchlistStateStore
     }
 
     /// <summary>
+    /// Gets the last observed completion state of a favorite season.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <param name="itemId">The season id.</param>
+    /// <returns>The observation, or null when the season has not been observed.</returns>
+    public SeasonObservation? GetSeasonObservation(Guid userId, Guid itemId)
+    {
+        lock (_sync)
+        {
+            var user = FindUserLocked(userId);
+            if (user is null || !user.Seasons.TryGetValue(Key(itemId), out var season) || season is null)
+            {
+                return null;
+            }
+
+            return new SeasonObservation(
+                season.Complete,
+                season.EpisodeCount,
+                season.SeasonNumber,
+                season.ContentFingerprint ?? string.Empty);
+        }
+    }
+
+    /// <summary>
     /// Records the play state of a favorite movie.
     /// </summary>
     /// <param name="userId">The user id.</param>
@@ -171,6 +197,124 @@ public sealed class WatchlistStateStore
     }
 
     /// <summary>
+    /// Records the completion state of a favorite season.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <param name="itemId">The season id.</param>
+    /// <param name="observation">The observation.</param>
+    public void SetSeasonObservation(Guid userId, Guid itemId, SeasonObservation observation)
+    {
+        ArgumentNullException.ThrowIfNull(observation);
+
+        lock (_sync)
+        {
+            var user = GetOrCreateUserLocked(userId);
+            user.Seasons[Key(itemId)] = new SeasonWatchState
+            {
+                Complete = observation.Complete,
+                EpisodeCount = observation.EpisodeCount,
+                SeasonNumber = observation.SeasonNumber,
+                ContentFingerprint = observation.ContentFingerprint ?? string.Empty
+            };
+        }
+    }
+
+    /// <summary>
+    /// Gets a removal tombstone.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <param name="itemId">The item id.</param>
+    /// <returns>The tombstone, or null when absent.</returns>
+    public RemovedWatchEntry? GetRemoved(Guid userId, Guid itemId)
+    {
+        lock (_sync)
+        {
+            var user = FindUserLocked(userId);
+            if (user is null || !user.Removed.TryGetValue(Key(itemId), out var entry) || entry is null)
+            {
+                return null;
+            }
+
+            return new RemovedWatchEntry
+            {
+                Kind = entry.Kind ?? string.Empty,
+                RemovedAt = entry.RemovedAt,
+                PendingReset = entry.PendingReset
+            };
+        }
+    }
+
+    /// <summary>
+    /// Records a removal tombstone.
+    /// </summary>
+    public void SetRemoved(Guid userId, Guid itemId, string kind, bool pendingReset = false)
+    {
+        lock (_sync)
+        {
+            var user = GetOrCreateUserLocked(userId);
+            user.Removed[Key(itemId)] = new RemovedWatchEntry
+            {
+                Kind = kind ?? string.Empty,
+                RemovedAt = DateTime.UtcNow,
+                PendingReset = pendingReset
+            };
+        }
+    }
+
+    /// <summary>
+    /// Sets the pending-reset flag on an existing tombstone.
+    /// </summary>
+    public void SetRemovedPending(Guid userId, Guid itemId, bool pendingReset)
+    {
+        lock (_sync)
+        {
+            var user = FindUserLocked(userId);
+            if (user is not null && user.Removed.TryGetValue(Key(itemId), out var entry) && entry is not null)
+            {
+                entry.PendingReset = pendingReset;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Removes a removal tombstone.
+    /// </summary>
+    public void RemoveRemoved(Guid userId, Guid itemId)
+    {
+        lock (_sync)
+        {
+            var user = FindUserLocked(userId);
+            user?.Removed.Remove(Key(itemId));
+        }
+    }
+
+    /// <summary>
+    /// Removes tombstones for items that no longer exist in the library.
+    /// Tombstones for unfavorited items are kept (normal post-removal state).
+    /// </summary>
+    public void PruneRemovedForMissingItems(Guid userId, Func<Guid, bool> exists)
+    {
+        ArgumentNullException.ThrowIfNull(exists);
+
+        lock (_sync)
+        {
+            var user = FindUserLocked(userId);
+            if (user is null || user.Removed.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var key in user.Removed.Keys.ToList())
+            {
+                if (Guid.TryParseExact(key, "N", out var id) && !exists(id))
+                {
+                    user.Removed.Remove(key);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Removes a movie observation.
     /// </summary>
     /// <param name="userId">The user id.</param>
@@ -199,7 +343,22 @@ public sealed class WatchlistStateStore
     }
 
     /// <summary>
-    /// Removes an item observation of either kind.
+    /// Removes a season observation.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <param name="itemId">The season id.</param>
+    public void RemoveSeason(Guid userId, Guid itemId)
+    {
+        lock (_sync)
+        {
+            var user = FindUserLocked(userId);
+            user?.Seasons.Remove(Key(itemId));
+        }
+    }
+
+    /// <summary>
+    /// Removes an item observation of any kind. Tombstones are kept so a later
+    /// re-add can still be distinguished from a first-time favorite.
     /// </summary>
     /// <param name="userId">The user id.</param>
     /// <param name="itemId">The item id.</param>
@@ -216,6 +375,28 @@ public sealed class WatchlistStateStore
             var key = Key(itemId);
             user.Movies.Remove(key);
             user.Series.Remove(key);
+            user.Seasons.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// Removes observations and tombstones for an item that no longer exists in the library.
+    /// </summary>
+    public void RemoveDeletedItem(Guid userId, Guid itemId)
+    {
+        lock (_sync)
+        {
+            var user = FindUserLocked(userId);
+            if (user is null)
+            {
+                return;
+            }
+
+            var key = Key(itemId);
+            user.Movies.Remove(key);
+            user.Series.Remove(key);
+            user.Seasons.Remove(key);
+            user.Removed.Remove(key);
         }
     }
 
@@ -234,14 +415,18 @@ public sealed class WatchlistStateStore
 
     /// <summary>
     /// Removes observations for items that are no longer favorites.
+    /// Tombstones are kept: an unfavorited item with a tombstone is the normal
+    /// state after an auto-removal, and the tombstone is needed for re-add detection.
     /// </summary>
     /// <param name="userId">The user id.</param>
     /// <param name="favoriteMovieIds">The user's current favorite movie ids.</param>
     /// <param name="favoriteSeriesIds">The user's current favorite series ids.</param>
+    /// <param name="favoriteSeasonIds">The user's current favorite season ids.</param>
     public void PruneUser(
         Guid userId,
         IReadOnlySet<Guid> favoriteMovieIds,
-        IReadOnlySet<Guid> favoriteSeriesIds)
+        IReadOnlySet<Guid> favoriteSeriesIds,
+        IReadOnlySet<Guid>? favoriteSeasonIds = null)
     {
         ArgumentNullException.ThrowIfNull(favoriteMovieIds);
         ArgumentNullException.ThrowIfNull(favoriteSeriesIds);
@@ -249,7 +434,7 @@ public sealed class WatchlistStateStore
         // An empty favorites result usually means the query ran before the
         // library was ready, not that the user unfavorited everything. Never
         // wipe observations in that case; the next non-empty scan prunes.
-        if (favoriteMovieIds.Count == 0 && favoriteSeriesIds.Count == 0)
+        if (favoriteMovieIds.Count == 0 && favoriteSeriesIds.Count == 0 && (favoriteSeasonIds is null || favoriteSeasonIds.Count == 0))
         {
             _logger.LogWarning("Watchlist: favorites query returned no items; skipping prune without changing state.");
             return;
@@ -265,6 +450,7 @@ public sealed class WatchlistStateStore
 
             var movieKeys = favoriteMovieIds.Select(Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var seriesKeys = favoriteSeriesIds.Select(Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var seasonKeys = (favoriteSeasonIds ?? new HashSet<Guid>()).Select(Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             foreach (var key in user.Movies.Keys.Where(key => !movieKeys.Contains(key)).ToList())
             {
@@ -276,7 +462,12 @@ public sealed class WatchlistStateStore
                 user.Series.Remove(key);
             }
 
-            if (user.Movies.Count == 0 && user.Series.Count == 0)
+            foreach (var key in user.Seasons.Keys.Where(key => !seasonKeys.Contains(key)).ToList())
+            {
+                user.Seasons.Remove(key);
+            }
+
+            if (user.Movies.Count == 0 && user.Series.Count == 0 && user.Seasons.Count == 0 && user.Removed.Count == 0)
             {
                 state.Users.Remove(Key(userId));
             }
@@ -339,8 +530,15 @@ public sealed class WatchlistStateStore
             {
                 var json = File.ReadAllText(_filePath);
                 var state = JsonSerializer.Deserialize<WatchlistState>(json, JsonOptions);
-                if (state is not null && state.SchemaVersion == CurrentSchemaVersion)
+                if (state is not null
+                    && (state.SchemaVersion == CurrentSchemaVersion || state.SchemaVersion == MinimumSupportedSchemaVersion))
                 {
+                    // Migrate v1 (movies + series only) to v2.
+                    if (state.SchemaVersion == MinimumSupportedSchemaVersion)
+                    {
+                        state.SchemaVersion = CurrentSchemaVersion;
+                    }
+
                     Normalize(state);
                     _state = state;
                     _loaded = true;
@@ -412,6 +610,8 @@ public sealed class WatchlistStateStore
         {
             user.Movies ??= new Dictionary<string, MovieWatchState>();
             user.Series ??= new Dictionary<string, SeriesWatchState>();
+            user.Seasons ??= new Dictionary<string, SeasonWatchState>();
+            user.Removed ??= new Dictionary<string, RemovedWatchEntry>();
 
             foreach (var key in user.Movies.Keys.Where(key => user.Movies[key] is null).ToList())
             {
@@ -423,9 +623,29 @@ public sealed class WatchlistStateStore
                 user.Series.Remove(key);
             }
 
+            foreach (var key in user.Seasons.Keys.Where(key => user.Seasons[key] is null).ToList())
+            {
+                user.Seasons.Remove(key);
+            }
+
+            foreach (var key in user.Removed.Keys.Where(key => user.Removed[key] is null).ToList())
+            {
+                user.Removed.Remove(key);
+            }
+
             foreach (var series in user.Series.Values)
             {
                 series.ContentFingerprint ??= string.Empty;
+            }
+
+            foreach (var season in user.Seasons.Values)
+            {
+                season.ContentFingerprint ??= string.Empty;
+            }
+
+            foreach (var removed in user.Removed.Values)
+            {
+                removed.Kind ??= string.Empty;
             }
         }
     }
