@@ -12,6 +12,7 @@ namespace Jellyfin.Plugin.Watchlist.Models;
 /// <param name="AutoRemoveSeries">Whether completed series favorites are removed.</param>
 /// <param name="AutoRemoveSeasons">Whether fully watched season favorites are removed.</param>
 /// <param name="EnableRewatch">Whether re-adding a removed item clears its played state.</param>
+/// <param name="WaitForAiring">Whether complete but still-airing units stay until they finish airing.</param>
 /// <param name="ExemptTag">An optional tag that protects an item from removal.</param>
 /// <param name="DryRun">Whether removal is only logged.</param>
 /// <param name="EnableReconciliation">Whether startup and scheduled scans run.</param>
@@ -23,6 +24,7 @@ public sealed record WatchlistOptions(
     bool AutoRemoveSeries,
     bool AutoRemoveSeasons,
     bool EnableRewatch,
+    bool WaitForAiring,
     string ExemptTag,
     bool DryRun,
     bool EnableReconciliation)
@@ -49,6 +51,7 @@ public sealed record WatchlistOptions(
             config.AutoRemoveSeries,
             config.AutoRemoveSeasons,
             config.EnableRewatch,
+            config.WaitForAiring,
             (config.ExemptTag ?? string.Empty).Trim(),
             config.DryRun,
             config.EnableReconciliation);
@@ -56,6 +59,9 @@ public sealed record WatchlistOptions(
 
     /// <summary>
     /// Gets a signature of the options that affect completion decisions.
+    /// Removal-policy toggles (auto-remove switches, rewatch, airing guard,
+    /// exempt tag, dry run, reconciliation) are deliberately excluded: they
+    /// change what happens with a result, not the result itself.
     /// </summary>
     public string Signature => $"{Mode}|{ExcludeSpecials}|{TreatUnknownSeriesStatusAsEnded}";
 }

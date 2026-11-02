@@ -22,7 +22,7 @@
                             <li>Star a movie, series, or season with the &#9733; favorite button.</li>
                             <li>Find it later on the Favorites page.</li>
                             <li>Watch it normally. The plugin removes it from Favorites when complete.</li>
-                            <li>Star it again to rewatch: if it is still fully watched, its played state is cleared.</li>
+                            <li>Star a finished item again to rewatch: if it is still fully watched, its played state is cleared. Re-adding an airing item just resumes tracking.</li>
                         </ol>
                     </div>
                     <div style="padding:1em;margin:1em 0 1.5em;border-radius:6px;background:rgba(255,193,7,0.12);">
@@ -47,9 +47,24 @@
                             Ended in metadata and every eligible episode is played. Catching up on
                             an ongoing show does not remove it.<br>
                             <strong>Caught up</strong> removes the series as soon as every currently
-                            available episode is played, even if more episodes are coming.<br>
+                            available episode is played, even if more episodes are coming. This mode
+                            ignores the airing guard below.<br>
                             <strong>Latest season watched</strong> removes the series when every
                             episode of its newest season is played; earlier seasons are ignored.
+                            Unless still airing and the guard below is on.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="WaitForAiring" type="checkbox" is="emby-checkbox" />
+                            <span>Wait for airing shows and seasons to finish airing</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When on, a complete series or season with unaired or announced future
+                            episodes stays in Favorites until those episodes air and are watched.
+                            Caught up mode is exempt and still removes mid-season. Re-adding an
+                            airing item never clears its played state.
                         </div>
                     </div>
 
@@ -82,7 +97,9 @@
                         <div class="fieldDescription">
                             A favorited season is removed when every eligible episode in that
                             season is played. A directly favorited season zero is evaluated
-                            literally even when specials are ignored for series.
+                            literally even when specials are ignored for series. A season with
+                            unaired or announced future episodes stays until they air, unless
+                            the airing guard above is off.
                         </div>
                     </div>
 
@@ -94,7 +111,9 @@
                         <div class="fieldDescription">
                             When an item the plugin removed is added back to Favorites and it
                             is still fully watched, clear its played state so you do not have
-                            to unmark everything manually. Only the user who re-adds the item
+                            to unmark everything manually. Only finished items are reset:
+                            re-adding an airing series or season never clears played state.
+                            Only the user who re-adds the item
                             is reset. A re-added series is only reset when every eligible
                             episode across all seasons is played; otherwise favorite a
                             specific season. This clears played badges and resume positions.
@@ -127,7 +146,7 @@
                         <label class="inputLabel inputLabelUnfocused" for="ExemptTag">Exempt tag</label>
                         <input id="ExemptTag" type="text" is="emby-input" />
                         <div class="fieldDescription">
-                            Movies and series with this tag are never auto-removed. Leave empty
+                            Movies, series, and seasons with this tag are never auto-removed. Leave empty
                             to disable the exempt tag. Default: <code>keep-favorite</code>.
                         </div>
                     </div>
@@ -192,6 +211,8 @@
                             config.AutoRemoveSeries !== false;
                         document.querySelector('#AutoRemoveSeasons').checked =
                             config.AutoRemoveSeasons !== false;
+                        document.querySelector('#WaitForAiring').checked =
+                            config.WaitForAiring !== false;
                         document.querySelector('#EnableRewatch').checked =
                             config.EnableRewatch !== false;
                         document.querySelector('#ExcludeSpecials').checked =
@@ -217,6 +238,7 @@
                         config.AutoRemoveMovies = getChecked('AutoRemoveMovies');
                         config.AutoRemoveSeries = getChecked('AutoRemoveSeries');
                         config.AutoRemoveSeasons = getChecked('AutoRemoveSeasons');
+                        config.WaitForAiring = getChecked('WaitForAiring');
                         config.EnableRewatch = getChecked('EnableRewatch');
                         config.ExcludeSpecials = getChecked('ExcludeSpecials');
                         config.TreatUnknownSeriesStatusAsEnded = getChecked('TreatUnknownSeriesStatusAsEnded');

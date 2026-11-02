@@ -49,6 +49,28 @@ public sealed class WatchlistOptionsTests
     }
 
     [Fact]
+    public void From_DefaultsWaitForAiringToTrue()
+    {
+        var options = WatchlistOptions.From(new PluginConfiguration());
+
+        Assert.True(options.WaitForAiring);
+    }
+
+    [Fact]
+    public void Signature_IgnoresRemovalPolicyToggles()
+    {
+        var first = WatchlistOptions.From(new PluginConfiguration());
+        var second = WatchlistOptions.From(new PluginConfiguration
+        {
+            WaitForAiring = false,
+            EnableRewatch = false,
+            AutoRemoveSeasons = false
+        });
+
+        Assert.Equal(first.Signature, second.Signature);
+    }
+
+    [Fact]
     public void Signature_ChangesWithCompletionAffectingOptions()
     {
         var first = WatchlistOptions.From(new PluginConfiguration());

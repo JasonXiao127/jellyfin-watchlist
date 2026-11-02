@@ -27,6 +27,7 @@ public sealed class RewatchTests : IDisposable
             AutoRemoveSeries: autoRemoveSeries,
             AutoRemoveSeasons: autoRemoveSeasons,
             EnableRewatch: enableRewatch,
+            WaitForAiring: true,
             ExemptTag: "keep-favorite",
             DryRun: dryRun,
             EnableReconciliation: true);

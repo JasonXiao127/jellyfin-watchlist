@@ -406,6 +406,26 @@ public sealed class WatchlistService : IDisposable
 
                 if (RemovalPolicy.ShouldRemoveSeason(observed, current))
                 {
+                    if (options.WaitForAiring)
+                    {
+                        var seasonAiring = GetSeasonAiring(user, season, options);
+                        if (seasonAiring.IsAiring)
+                        {
+                            if (options.DryRun)
+                            {
+                                LogDryRunButAiring(user, season, seasonAiring);
+                                continue;
+                            }
+
+                            LogAiringKept(user, season, seasonAiring);
+                            _stateStore.SetSeasonObservation(
+                                user.Id,
+                                season.Id,
+                                ToSeasonObservation(current));
+                            continue;
+                        }
+                    }
+
                     if (options.DryRun)
                     {
                         LogWouldRemove(user, season);
@@ -483,6 +503,26 @@ public sealed class WatchlistService : IDisposable
 
                 if (RemovalPolicy.ShouldRemoveSeries(observed, current))
                 {
+                    if (options.WaitForAiring)
+                    {
+                        var seriesAiring = GetSeriesAiring(user, show, options);
+                        if (seriesAiring.IsAiring)
+                        {
+                            if (options.DryRun)
+                            {
+                                LogDryRunButAiring(user, show, seriesAiring);
+                                continue;
+                            }
+
+                            LogAiringKept(user, show, seriesAiring);
+                            _stateStore.SetSeriesObservation(
+                                user.Id,
+                                show.Id,
+                                ToObservation(current));
+                            continue;
+                        }
+                    }
+
                     if (options.DryRun)
                     {
                         LogWouldRemove(user, show);
@@ -784,6 +824,23 @@ public sealed class WatchlistService : IDisposable
             return true;
         }
 
+        if (options.WaitForAiring)
+        {
+            var airing = GetSeriesAiring(user, series, options);
+            if (airing.IsAiring)
+            {
+                if (options.DryRun)
+                {
+                    LogDryRunButAiring(user, series, airing);
+                    return false;
+                }
+
+                LogAiringKept(user, series, airing);
+                _stateStore.SetSeriesObservation(user.Id, series.Id, ToObservation(current));
+                return true;
+            }
+        }
+
         if (options.DryRun)
         {
             LogWouldRemove(user, series);
@@ -885,6 +942,23 @@ public sealed class WatchlistService : IDisposable
 
             _stateStore.SetSeasonObservation(user.Id, season.Id, ToSeasonObservation(current));
             return true;
+        }
+
+        if (options.WaitForAiring)
+        {
+            var airing = GetSeasonAiring(user, season, options);
+            if (airing.IsAiring)
+            {
+                if (options.DryRun)
+                {
+                    LogDryRunButAiring(user, season, airing);
+                    return false;
+                }
+
+                LogAiringKept(user, season, airing);
+                _stateStore.SetSeasonObservation(user.Id, season.Id, ToSeasonObservation(current));
+                return true;
+            }
         }
 
         if (options.DryRun)
@@ -1019,6 +1093,23 @@ public sealed class WatchlistService : IDisposable
             return true;
         }
 
+        if (options.WaitForAiring)
+        {
+            var airing = GetSeriesAiring(user, series, options);
+            if (airing.IsAiring)
+            {
+                if (options.DryRun)
+                {
+                    LogDryRunButAiring(user, series, airing);
+                    return dirty;
+                }
+
+                LogAiringKept(user, series, airing);
+                _stateStore.SetSeriesObservation(user.Id, series.Id, ToObservation(current));
+                return true;
+            }
+        }
+
         if (options.DryRun)
         {
             LogWouldRemove(user, series);
@@ -1074,6 +1165,23 @@ public sealed class WatchlistService : IDisposable
 
             _stateStore.SetSeasonObservation(user.Id, season.Id, ToSeasonObservation(current));
             return true;
+        }
+
+        if (options.WaitForAiring)
+        {
+            var airing = GetSeasonAiring(user, season, options);
+            if (airing.IsAiring)
+            {
+                if (options.DryRun)
+                {
+                    LogDryRunButAiring(user, season, airing);
+                    return false;
+                }
+
+                LogAiringKept(user, season, airing);
+                _stateStore.SetSeasonObservation(user.Id, season.Id, ToSeasonObservation(current));
+                return true;
+            }
         }
 
         if (options.DryRun)
@@ -1169,7 +1277,182 @@ public sealed class WatchlistService : IDisposable
         return EvaluateSeries(user, series, resetOptions);
     }
 
-    private CompletionResult EvaluateSeason(User user, Series series, int seasonNumber, WatchlistOptions options)
+    /// <summary>
+    /// Builds airing snapshots from episodes. Played state is irrelevant for
+    /// the airing guard, so no user data is fetched.
+    /// </summary>
+    private static List<EpisodeSnapshot> BuildAiringSnapshots(IEnumerable<Episode> episodes)
+    {
+        var snapshots = new List<EpisodeSnapshot>();
+        foreach (var episode in episodes)
+        {
+            snapshots.Add(new EpisodeSnapshot(
+                episode.ParentIndexNumber,
+                episode.PremiereDate,
+                episode.IsMissingEpisode || episode.IsVirtualItem,
+                false,
+                episode.Id));
+        }
+
+        return snapshots;
+    }
+
+    /// <summary>
+    /// Checks whether a series is still airing in the scope of the configured
+    /// mode. Missing and virtual episodes are included so announced future
+    /// content stays visible; completion filtering is unchanged.
+    /// </summary>
+    private AiringInfo GetSeriesAiring(User user, Series series, WatchlistOptions options)
+    {
+        if (options.Mode == CompletionMode.CaughtUp)
+        {
+            return AiringInfo.NotAiring;
+        }
+
+        try
+        {
+            var episodes = series
+                .GetEpisodes(user, new DtoOptions(false), shouldIncludeMissingEpisodes: true)
+                .OfType<Episode>()
+                .ToList();
+            return AiringGuard.CheckSeriesAiring(BuildAiringSnapshots(episodes), options, DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Watchlist: failed to check airing state for series '{SeriesName}'.", series.Name);
+            return AiringInfo.NotAiring;
+        }
+    }
+
+    /// <summary>
+    /// Checks whether any future episode exists anywhere in the series,
+    /// regardless of completion mode. Used to gate rewatch resets.
+    /// </summary>
+    private AiringInfo GetSeriesFutureAiring(User user, Series series, WatchlistOptions options)
+    {
+        var resetOptions = options with { Mode = CompletionMode.EndedAndFullyWatched };
+        try
+        {
+            var episodes = series
+                .GetEpisodes(user, new DtoOptions(false), shouldIncludeMissingEpisodes: true)
+                .OfType<Episode>()
+                .ToList();
+            return AiringGuard.CheckSeriesAiring(BuildAiringSnapshots(episodes), resetOptions, DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Watchlist: failed to check future episodes for series '{SeriesName}'.", series.Name);
+            return AiringInfo.NotAiring;
+        }
+    }
+
+    /// <summary>
+    /// Checks whether a favorited season is still airing.
+    /// </summary>
+    private AiringInfo GetSeasonAiring(User user, Season season, WatchlistOptions options)
+    {
+        try
+        {
+            var episodes = season
+                .GetEpisodes(user, new DtoOptions(false), shouldIncludeMissingEpisodes: true)
+                .OfType<Episode>()
+                .ToList();
+            return AiringGuard.CheckSeasonAiring(
+                BuildAiringSnapshots(episodes),
+                season.IndexNumber ?? 1,
+                options,
+                DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Watchlist: failed to check airing state for season '{SeasonName}'.", season.Name);
+            return AiringInfo.NotAiring;
+        }
+    }
+
+    /// <summary>
+    /// Checks whether one season of a series is still airing.
+    /// </summary>
+    private AiringInfo GetSeasonAiring(User user, Series series, int seasonNumber, WatchlistOptions options)
+    {
+        try
+        {
+            var episodes = series
+                .GetEpisodes(user, new DtoOptions(false), shouldIncludeMissingEpisodes: true)
+                .OfType<Episode>()
+                .Where(e => (e.ParentIndexNumber ?? 1) == seasonNumber)
+                .ToList();
+            return AiringGuard.CheckSeasonAiring(
+                BuildAiringSnapshots(episodes),
+                seasonNumber,
+                options,
+                DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(
+                ex,
+                "Watchlist: failed to check airing state for season {SeasonNumber} of series '{SeriesName}'.",
+                seasonNumber,
+                series.Name);
+            return AiringInfo.NotAiring;
+        }
+    }
+
+    /// <summary>
+    /// Decides whether re-adding a series must never trigger a rewatch reset:
+    /// the show has known future episodes, or its status says it is still
+    /// active even when no future date is known (for example between seasons).
+    /// </summary>
+    private bool IsSeriesResetBlocked(User user, Series series, WatchlistOptions options)
+    {
+        if (AiringGuard.IsSeriesActiveForReset(series.Status))
+        {
+            return true;
+        }
+
+        return GetSeriesFutureAiring(user, series, options).IsAiring;
+    }
+
+    private void LogAiringKept(User user, BaseItem item, AiringInfo airing)
+    {
+        if (airing.NextPremiere.HasValue)
+        {
+            _logger.LogInformation(
+                "Watchlist: '{ItemName}' for user '{UserName}' is complete but still airing (next episode {NextPremiere:yyyy-MM-dd}); keeping it in Favorites.",
+                item.Name,
+                user.Username,
+                airing.NextPremiere.Value);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Watchlist: '{ItemName}' for user '{UserName}' is complete but still airing; keeping it in Favorites.",
+                item.Name,
+                user.Username);
+        }
+    }
+
+    private void LogDryRunButAiring(User user, BaseItem item, AiringInfo airing)
+    {
+        if (airing.NextPremiere.HasValue)
+        {
+            _logger.LogInformation(
+                "Watchlist dry run: would remove {ItemType} '{ItemName}' for user '{UserName}' but it is still airing (next episode {NextPremiere:yyyy-MM-dd}).",
+                item.GetType().Name,
+                item.Name,
+                user.Username,
+                airing.NextPremiere.Value);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Watchlist dry run: would remove {ItemType} '{ItemName}' for user '{UserName}' but it is still airing.",
+                item.GetType().Name,
+                item.Name,
+                user.Username);
+        }
+    }    private CompletionResult EvaluateSeason(User user, Series series, int seasonNumber, WatchlistOptions options)
     {
         // Episodes for one season within a series scope.
         var includeMissing = options.Mode == CompletionMode.LatestSeasonWatched;
@@ -1273,6 +1556,7 @@ public sealed class WatchlistService : IDisposable
             || fresh.AutoRemoveSeries != options.AutoRemoveSeries
             || fresh.AutoRemoveSeasons != options.AutoRemoveSeasons
             || fresh.EnableRewatch != options.EnableRewatch
+            || fresh.WaitForAiring != options.WaitForAiring
             || !string.Equals(fresh.ExemptTag, options.ExemptTag, StringComparison.OrdinalIgnoreCase)
             || IsExempt(item, fresh))
         {
@@ -1368,9 +1652,9 @@ public sealed class WatchlistService : IDisposable
 
     /// <summary>
     /// Resolves whether an item should still be treated as a favorite.
-    /// A fresh library favorites query decides when the cached user data and
-    /// the event snapshot disagree or both say "not favorite", because the
-    /// cached value can stay stale after a library scan.
+    /// Agreement prunes or keeps without a query; disagreement falls back to a
+    /// fresh library favorites query because the cached value can stay stale
+    /// after a library scan.
     /// </summary>
     private bool IsCurrentlyFavorite(User user, BaseItem item, bool liveIsFavorite, bool? eventIsFavorite)
     {
@@ -1529,6 +1813,22 @@ public sealed class WatchlistService : IDisposable
             return true;
         }
 
+        if (options.WaitForAiring)
+        {
+            var airing = GetSeasonAiring(user, season, options);
+            if (airing.IsAiring)
+            {
+                _stateStore.RemoveRemoved(user.Id, season.Id);
+                var airingBaseline = EvaluateSeason(user, season, options);
+                _stateStore.SetSeasonObservation(user.Id, season.Id, ToSeasonObservation(airingBaseline));
+                _logger.LogInformation(
+                    "Watchlist: re-added season '{SeasonName}' for user '{UserName}' is still airing; keeping progress instead of resetting.",
+                    season.Name,
+                    user.Username);
+                return true;
+            }
+        }
+
         var fullyWatched = EvaluateSeason(user, season, options);
         if (!ResetPolicy.ShouldResetCompletion(fullyWatched, true, options.EnableRewatch, options.AutoRemoveSeasons, IsExempt(season, options)))
         {
@@ -1583,6 +1883,18 @@ public sealed class WatchlistService : IDisposable
         if (!options.EnableRewatch || !options.AutoRemoveSeries || IsExempt(series, options))
         {
             _stateStore.RemoveRemoved(user.Id, series.Id);
+            return true;
+        }
+
+        if (options.WaitForAiring && IsSeriesResetBlocked(user, series, options))
+        {
+            _stateStore.RemoveRemoved(user.Id, series.Id);
+            var airingBaseline = EvaluateSeries(user, series, options);
+            _stateStore.SetSeriesObservation(user.Id, series.Id, ToObservation(airingBaseline));
+            _logger.LogInformation(
+                "Watchlist: re-added series '{SeriesName}' for user '{UserName}' is still airing; keeping progress instead of resetting.",
+                series.Name,
+                user.Username);
             return true;
         }
 
@@ -1716,6 +2028,22 @@ public sealed class WatchlistService : IDisposable
             return true;
         }
 
+        if (options.WaitForAiring)
+        {
+            var pendingAiring = GetSeasonAiring(user, season, options);
+            if (pendingAiring.IsAiring)
+            {
+                _stateStore.RemoveRemoved(user.Id, season.Id);
+                var airingBaseline = EvaluateSeason(user, season, options);
+                _stateStore.SetSeasonObservation(user.Id, season.Id, ToSeasonObservation(airingBaseline));
+                _logger.LogInformation(
+                    "Watchlist: re-added season '{SeasonName}' for user '{UserName}' is still airing; keeping progress instead of resetting.",
+                    season.Name,
+                    user.Username);
+                return true;
+            }
+        }
+
         var fullyWatched = EvaluateSeason(user, season, options);
         if (!fullyWatched.IsComplete)
         {
@@ -1777,6 +2105,18 @@ public sealed class WatchlistService : IDisposable
             _stateStore.RemoveRemoved(user.Id, series.Id);
             var postExempt = EvaluateSeries(user, series, options);
             _stateStore.SetSeriesObservation(user.Id, series.Id, ToObservation(postExempt));
+            return true;
+        }
+
+        if (options.WaitForAiring && IsSeriesResetBlocked(user, series, options))
+        {
+            _stateStore.RemoveRemoved(user.Id, series.Id);
+            var airingBaseline = EvaluateSeries(user, series, options);
+            _stateStore.SetSeriesObservation(user.Id, series.Id, ToObservation(airingBaseline));
+            _logger.LogInformation(
+                "Watchlist: re-added series '{SeriesName}' for user '{UserName}' is still airing; keeping progress instead of resetting.",
+                series.Name,
+                user.Username);
             return true;
         }
 

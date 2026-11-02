@@ -296,6 +296,7 @@ public sealed class CompletionEvaluatorTests
             AutoRemoveSeries: true,
             AutoRemoveSeasons: true,
             EnableRewatch: true,
+            WaitForAiring: true,
             ExemptTag: "keep-favorite",
             DryRun: false,
             EnableReconciliation: true);

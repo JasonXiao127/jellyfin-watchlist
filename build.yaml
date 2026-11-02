@@ -21,6 +21,11 @@ changelog: >
   Re-adding an auto-removed movie, series, or season that is still fully watched
   starts a rewatch by clearing its played state (toggleable). New options: Remove
   seasons when fully watched and Start a rewatch when a removed item is re-added.
+  Wait for airing shows and seasons to finish airing (default on): complete but
+  still-airing units stay until their known future episodes air, and re-adding an
+  airing item never clears played state. Caught up mode is exempt. Unfavoriting
+  now clears tracking immediately so stale baselines cannot strand later completions.
+  Library scans run without blocking favorite/play processing.
   Fixed test mode missing fresh favorites (first sightings are now baselined in dry-run).
   State schema v2 with season observations and removal tombstones (v1 migrates).
   0.2.3: Fixed series tracking dropped after a library scan adds new episodes

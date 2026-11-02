@@ -39,25 +39,20 @@ public sealed class FavoriteStatusResolverTests
     }
 
     [Fact]
-    public void BothNotFavorite_DefersToFreshLookup()
+    public void BothNotFavorite_PrunesImmediatelyWithoutFreshLookup()
     {
+        var calls = 0;
         var result = FavoriteStatusResolver.ShouldTreatAsFavorite(
             liveIsFavorite: false,
             eventIsFavorite: false,
-            () => true);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public void BothNotFavorite_FreshSaysNotFavorite()
-    {
-        var result = FavoriteStatusResolver.ShouldTreatAsFavorite(
-            liveIsFavorite: false,
-            eventIsFavorite: false,
-            () => false);
+            () =>
+            {
+                calls++;
+                return true;
+            });
 
         Assert.False(result);
+        Assert.Equal(0, calls);
     }
 
     [Fact]
@@ -70,11 +65,11 @@ public sealed class FavoriteStatusResolverTests
     }
 
     [Fact]
-    public void FreshLookupFailure_PreservesTracking()
+    public void FreshLookupFailureOnDisagreement_PreservesTracking()
     {
         var result = FavoriteStatusResolver.ShouldTreatAsFavorite(
             liveIsFavorite: false,
-            eventIsFavorite: false,
+            eventIsFavorite: true,
             () => null);
 
         Assert.True(result);

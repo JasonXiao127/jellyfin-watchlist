@@ -29,6 +29,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoRemoveSeasons { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether complete but still-airing series
+    /// and seasons stay in Favorites until their known future episodes air.
+    /// Caught up mode is exempt. Defaults to <c>true</c> so old configuration
+    /// files without this setting keep guarding.
+    /// </summary>
+    public bool WaitForAiring { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether re-adding a removed item starts a rewatch by clearing its played state.
     /// </summary>
     public bool EnableRewatch { get; set; } = true;

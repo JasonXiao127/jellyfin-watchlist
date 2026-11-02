@@ -36,6 +36,7 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
 
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly object _configSync = new();
+    private readonly object _scanSync = new();
     private Task? _worker;
     private Plugin? _subscribedPlugin;
     private bool _subscribedUserData;
@@ -43,6 +44,9 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
     private bool _disposed;
     private long _lastLibraryChangeTicks;
     private long _lastLibraryScanTicks;
+    private bool _libraryScanRequested;
+    private bool _scanPumpActive;
+    private Task? _scanPumpTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WatchlistHostedService"/> class.
@@ -144,6 +148,41 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
                 catch (TimeoutException)
                 {
                     _logger.LogWarning("Watchlist: background worker did not stop after cancellation.");
+                }
+            }
+        }
+
+        // A library scan may still be waiting out its quiet period. Give it a
+        // chance to finish so a pending baseline refresh is not lost.
+        Task? scanPump;
+        lock (_scanSync)
+        {
+            scanPump = _scanPumpTask;
+        }
+
+        if (scanPump is not null)
+        {
+            try
+            {
+                await scanPump.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Watchlist: background library scan did not stop within the timeout; cancelling.");
+                _cancellationTokenSource.Cancel();
+                try
+                {
+                    await scanPump.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (TimeoutException)
+                {
+                    _logger.LogWarning("Watchlist: background library scan did not stop after cancellation.");
                 }
             }
         }
@@ -320,7 +359,8 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
         // New or updated episodes change what "complete" means for their
         // series, and removed items change fingerprints. Queue a delayed
         // reconciliation so baselines catch up even if no user-data event
-        // follows. The worker coalesces bursts into a single scan.
+        // follows. Library scans run on a separate pump so a quiet-period
+        // wait never holds user-data events hostage.
         if (eventArgs.Item is Episode or Series or Season or Movie)
         {
             Volatile.Write(ref _lastLibraryChangeTicks, DateTime.UtcNow.Ticks);
@@ -353,14 +393,26 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
 
                     TrySubscribeToConfig();
 
-                    TimeSpan? scanDelay = null;
-                    var scanKind = ScanKind.None;
+                    // Startup and reinitialization scans run inline: the startup
+                    // scan must establish baselines before post-startup events
+                    // are handled, and reinitialization is rare. Library scans
+                    // are scheduled on the scan pump instead, so waiting out
+                    // the library quiet period never holds user-data events
+                    // hostage. Scans and events serialize inside the service.
+                    TimeSpan? blockingDelay = null;
+                    var hasLibraryScan = false;
                     foreach (var item in batch)
                     {
                         if (item.Change is null)
                         {
-                            scanKind = MergeScanKind(scanKind, item.ScanKind);
-                            scanDelay = scanDelay is null ? item.Delay : Max(scanDelay.Value, item.Delay);
+                            if (item.ScanKind == ScanKind.LibraryChanged)
+                            {
+                                hasLibraryScan = true;
+                            }
+                            else
+                            {
+                                blockingDelay = blockingDelay is null ? item.Delay : Max(blockingDelay.Value, item.Delay);
+                            }
                         }
                     }
 
@@ -388,24 +440,17 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
                             .ConfigureAwait(false);
                     }
 
-                    if (scanKind != ScanKind.None && scanDelay is not null)
+                    if (blockingDelay is not null)
                     {
-                        if (scanKind == ScanKind.LibraryChanged)
-                        {
-                            await WaitForLibraryScanAsync(scanDelay.Value, cancellationToken)
-                                .ConfigureAwait(false);
-                            Volatile.Write(ref _lastLibraryScanTicks, DateTime.UtcNow.Ticks);
-                        }
-                        else
-                        {
-                            // Startup and configuration reinitialization stay
-                            // prompt; only library churn is throttled.
-                            await Task.Delay(scanDelay.Value, cancellationToken).ConfigureAwait(false);
-                        }
-
+                        await Task.Delay(blockingDelay.Value, cancellationToken).ConfigureAwait(false);
                         await _watchlistService
                             .ReconcileAsync(progress: null, cancellationToken: cancellationToken)
                             .ConfigureAwait(false);
+                    }
+
+                    if (hasLibraryScan)
+                    {
+                        ScheduleLibraryScan();
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -421,6 +466,88 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Normal shutdown.
+        }
+    }
+
+    /// <summary>
+    /// Schedules a library reconciliation on the scan pump without blocking
+    /// the event loop. Bursts coalesce: at most one pump runs at a time and
+    /// it re-checks for new requests after every scan, so no request is lost
+    /// and user-data events are never stuck behind a quiet-period wait.
+    /// </summary>
+    private void ScheduleLibraryScan()
+    {
+        lock (_scanSync)
+        {
+            _libraryScanRequested = true;
+            if (_scanPumpActive)
+            {
+                return;
+            }
+
+            _scanPumpActive = true;
+            _scanPumpTask = Task.Run(() => LibraryScanPumpAsync(_cancellationTokenSource.Token));
+        }
+    }
+
+    private async Task LibraryScanPumpAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                lock (_scanSync)
+                {
+                    if (!_libraryScanRequested)
+                    {
+                        return;
+                    }
+
+                    _libraryScanRequested = false;
+                }
+
+                try
+                {
+                    await WaitForLibraryScanAsync(LibraryChangedDelay, cancellationToken).ConfigureAwait(false);
+                    Volatile.Write(ref _lastLibraryScanTicks, DateTime.UtcNow.Ticks);
+                    await _watchlistService
+                        .ReconcileAsync(progress: null, cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Watchlist: background library scan failed.");
+                }
+            }
+        }
+        finally
+        {
+            // Close the race where a request lands after the final check:
+            // re-check under the same lock the scheduler uses, and respawn
+            // if needed. Never respawn while shutting down.
+            bool restart;
+            lock (_scanSync)
+            {
+                restart = _libraryScanRequested && !cancellationToken.IsCancellationRequested;
+                if (!restart)
+                {
+                    _scanPumpActive = false;
+                    _scanPumpTask = null;
+                }
+            }
+
+            if (restart)
+            {
+                lock (_scanSync)
+                {
+                    _scanPumpActive = true;
+                    _scanPumpTask = Task.Run(() => LibraryScanPumpAsync(cancellationToken));
+                }
+            }
         }
     }
 
@@ -469,11 +596,6 @@ public sealed class WatchlistHostedService : IHostedService, IDisposable
     private static TimeSpan Max(TimeSpan first, TimeSpan second)
     {
         return first >= second ? first : second;
-    }
-
-    private static ScanKind MergeScanKind(ScanKind current, ScanKind next)
-    {
-        return (ScanKind)Math.Max((int)current, (int)next);
     }
 
     private enum ScanKind

@@ -30,7 +30,7 @@ clients; this plugin gives it watchlist behavior but cannot rename it.
 1. Star a movie, series, or season with the favorite button.
 2. Find it later under **Favorites**.
 3. Watch it normally. The plugin removes it from Favorites when complete.
-4. Star it again to rewatch: if it is still fully watched, its played state is cleared for that user.
+4. Star a finished item again to rewatch: if it is still fully watched, its played state is cleared for that user. Re-adding an airing item just resumes tracking.
 
 No plugin UI is needed for day-to-day use. Configuration lives under
 **Dashboard → Plugins → Watchlist**.
@@ -54,14 +54,38 @@ The completion rule is configurable:
 | Mode | Removes the series when |
 | --- | --- |
 | **Ended + fully watched** (default) | Jellyfin marks the series `Ended` and every eligible episode is played. Catching up on an ongoing show does not remove it. |
-| **Caught up** | Every currently available eligible episode is played, even if more episodes are coming. |
-| **Latest season watched** | Every eligible episode of the newest season is played. Earlier seasons are ignored. |
+| **Caught up** | Every currently available eligible episode is played, even if more episodes are coming. This mode ignores the airing guard. |
+| **Latest season watched** | Every eligible episode of the newest season is played. Earlier seasons are ignored. A newest season with unaired or announced episodes blocks removal while the airing guard is on. |
+
+### Airing shows
+
+Airing is decided by episode premiere dates the plugin can see, not by series
+status. A unit is airing while its evaluated scope has an episode premiering in
+the future — including announced future seasons that only have virtual or
+missing placeholders so far, as long as they carry a future premiere date.
+
+- The guard applies to **Ended + fully watched**, **Latest season watched**,
+  and favorited seasons. **Caught up** is exempt by design: it removes as soon
+  as the available episodes are watched, even mid-season.
+- When the guard blocks a removal, the item is baselined as complete for its
+  aired content and no removal tombstone is written. The next aired episode
+  re-arms removal when it is watched.
+- A series re-add is also treated as airing while its status is `Continuing`
+  or `Unreleased`, even with no known future date (for example between
+  seasons). Season re-adds only look at their own season.
+- Switching the guard off does not retroactively remove items that were kept
+  while it was on; they remove on their next completion transition.
+- Jellyfin cannot see a future season that has no episode records at all, so
+  such a season cannot block removal. The server log names the blocking episode
+  and its premiere date when the guard keeps an item.
 
 ### Seasons
 
 A favorited season is removed when every eligible episode in that season is played
 (aired, not missing). A directly favorited season zero is evaluated literally even
 when **Ignore season zero specials** is on; that setting remains series-only.
+A season with unaired or announced future episodes stays until they air while
+the airing guard is on.
 
 **Eligible episodes** are episodes that:
 
@@ -70,11 +94,12 @@ when **Ignore season zero specials** is on; that setting remains series-only.
 - are not season zero specials, unless **Ignore season zero specials** is turned off.
 
 Latest-season mode always ignores season zero. Missing episodes never block
-completion. Unaired episodes never block completion either, with one exception
+completion. Unaired episodes never count as watched, with one exception
 in latest-season mode: if the newest season exists but none of its episodes
 have aired yet — including announced seasons that only have virtual or missing
 placeholders so far — the series is not complete. The plugin does not fall back
-to an older season in that case.
+to an older season in that case. Separately, the airing guard below can keep an
+otherwise complete item on the list until its future episodes air.
 
 ### Completion transitions
 
@@ -109,9 +134,11 @@ prevents it from treating every favorite as something to delete.
 
 ### Rewatch reset
 
-When the plugin auto-removes a favorite for completion and you add that same item
-back to Favorites while it is still fully watched, the plugin clears its played
-state so you do not have to unmark everything manually:
+When the plugin auto-removes a finished favorite for completion and you add that
+same item back to Favorites while it is still fully watched, the plugin clears
+its played state so you do not have to unmark everything manually. Only finished
+items reset: re-adding an airing series or season never clears played state,
+it just resumes tracking.
 
 | Re-added unit | Reset when | Reset scope |
 | --- | --- | --- |
@@ -163,7 +190,11 @@ Open **Dashboard → Plugins → Watchlist** and configure:
 - **Remove series when complete** — on by default.
 - **Remove seasons when fully watched** — on by default.
 - **Start a rewatch when a removed item is re-added** — on by default. Clears played
-  state and resume positions for the re-adding user only.
+  state and resume positions for the re-adding user only. Never fires for items
+  that are still airing.
+- **Wait for airing shows and seasons to finish airing** — on by default. A complete
+  series or season with unaired or announced future episodes stays until they air
+  and are watched. Caught up mode is exempt.
 - **Ignore season zero specials** — on by default. Directly favorited season zero
   is always evaluated literally.
 - **Treat a missing series status as ended** — off by default.
@@ -177,7 +208,9 @@ Open **Dashboard → Plugins → Watchlist** and configure:
 
 Changing any completion rule (mode, specials, or unknown-status handling)
 clears the stored series observations and re-baselines current favorites on the
-next scan. Movie and season tracking is unaffected. New toggles never clear
+next scan. Switching modes never retroactively removes existing favorites:
+an already-complete favorite is kept, and only future new content removes it.
+Movie and season tracking is unaffected. New toggles never clear
 baselines. Turning off movie, series, or season removal does not erase tracking;
 re-enabling resumes where it left off.
 A long scan re-reads the configuration for every item, so enabling test mode
@@ -224,15 +257,17 @@ The publish output is the folder to copy into Jellyfin's plugin directory.
   its meaning for completed items. Use the exempt tag or disable automatic
   removal (movies, series, and/or seasons) if you keep favorites for reasons other than
   a watchlist.
-- **Rewatch resets watched state.** Re-adding a removed item clears played badges
+- **Rewatch resets watched state.** Re-adding a removed finished item clears played badges
   and resume positions for that user, and external trackers see the unplay.
+  Re-adding an airing item never resets.
 - If a series has no metadata status, it cannot complete in **Ended + fully
   watched** mode unless **Treat a missing series status as ended** is enabled.
   Use **Caught up** or **Latest season watched** instead.
 - Season zero specials are ignored by default for series (configurable) except a
   directly favorited season zero, which is always literal. Missing and
-  unaired episodes are always ignored. A series can therefore complete while
-  those remain unwatched.
+  unaired episodes never count as watched, but unaired episodes can still keep an
+  otherwise complete item on the list while the airing guard is on. A series can
+  therefore complete while those remain unwatched, yet stay favorited until they air.
 - The plugin only reacts to play state reported to Jellyfin. Direct file access
   or a client that never reports playback cannot be observed.
 - The daily scan and startup scan are safety nets. If a completion event is
